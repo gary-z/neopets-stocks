@@ -1,83 +1,85 @@
 # neopets-stocks
 
-One button. Buys 1,000 shares of the cheapest Neopets stock trading at 15 NP or above.
+A static page with one button. It sends you to the Neopets buy page with the cheapest stock
+trading at 15 NP or above already selected — you click **Buy Shares** yourself.
 
-## What the buy button actually is
+No server. Hosted on GitHub Pages.
 
-From the saved buy page (`stockmarket.phtml?type=buy`), the form is a **POST**, not a GET:
+## How the buy actually works
+
+The buy control on `stockmarket.phtml?type=buy` is a **POST**, not a GET:
 
 ```html
 <form action="https://www.neopets.com/process_stockmarket.phtml" method="post">
-  <input type="hidden" name="_ref_ck" value="c6fcd4782a859f2930cd0bc4b31420ee">
+  <input type="hidden" name="_ref_ck" value="...">   <!-- per-session token -->
   <input type="hidden" name="type" value="buy">
-  <input type="text" name="ticker_symbol" value="">
-  <input type="text" name="amount_shares" size="5" maxlength="5">
-  <input type="submit" value="Buy Shares">
-</form>
+  <input type="text" name="ticker_symbol">
+  <input type="text" name="amount_shares" maxlength="5">
 ```
 
-`_ref_ck` is a per-session token embedded in the page, so it can't be hardcoded — the server
-scrapes a fresh one off the buy page immediately before every order.
+A static site can't submit that for you: `_ref_ck` is session-scoped, and cookies don't ride along
+on a cross-site POST. So the page doesn't try — it hands the order to Neopets pre-selected and
+lets you confirm it there.
+
+What the URL can and can't prefill, confirmed by testing:
+
+| Field               | Prefills from URL? |
+| ------------------- | ------------------ |
+| Ticker symbol       | **yes** — `?type=buy&ticker=TPP` |
+| Number of shares    | **no** — `amount_shares` / `shares` params are ignored |
+
+Hence the bookmarklet on the page: drag it to your bookmarks bar once, click it on the buy page,
+and it fills the share count. It reads the ticker from the buy page's own URL rather than baking
+one in, so it keeps working after the target stock changes — drag it once, never again.
 
 ## Where prices come from
 
-Neopets has no public price API, and its own stock list needs a session. [neostocks.info](https://neostocks.info)
-tracks the market publicly and bootstraps its whole summary table into the served HTML as a
-`window.__data__` literal, including a `curr` (current price) per ticker, refreshed every 15 minutes:
+Neopets has no public price API, and its own stock list needs a session.
+[neostocks.info](https://neostocks.info) tracks the market publicly and bootstraps its summary
+table into the served HTML as a `window.__data__` literal, with a current price per ticker:
 
 ```json
 {"summary_data": {"1d": [{"ticker": "ACFI", "curr": 20, "update_time_nst": "..."}]}}
 ```
 
-The server reads that, keeps everything at or above 15 NP, and takes the cheapest.
+neostocks sends no `Access-Control-Allow-Origin`, so the browser can't read that directly. Instead
+`scripts/build.js` fetches it in CI, picks the cheapest stock at or above 15 NP, and writes
+`data.json` beside `index.html`. The page then reads it same-origin.
 
-## Why there's a server at all
+## Deploying
 
-The browser can't do either half by itself:
+`.github/workflows/publish.yml` rebuilds and redeploys about every 15 minutes, matching the
+neostocks refresh. Nothing is committed back to the repo — each run publishes a fresh artifact.
 
-- neostocks sends no `Access-Control-Allow-Origin`, so a page can't fetch prices cross-origin.
-- The buy is a cross-site POST, so cookies won't ride along (SameSite), and the token has to be
-  read off a page the browser also can't fetch cross-origin.
+One-time setup: **Settings → Pages → Source → GitHub Actions**.
 
-`server.js` is plain Node with **no dependencies** and binds to `127.0.0.1` only — it holds a live
-session cookie, so it should never be exposed.
+Caveats worth knowing:
 
-## Setup
+- GitHub delays scheduled workflows under load, so prices can be older than 15 minutes. The page
+  always shows the timestamp it built from.
+- Scheduled workflows are disabled after 60 days without repo activity.
+- A stale target only ever costs you a slightly-off pick — you see the real price on the Neopets
+  page before confirming, and Neopets rejects anything below 15 NP itself.
 
-Requires Node 18+ (uses built-in `fetch`).
-
-1. Log into neopets.com in your browser.
-2. Open DevTools → Network → click any neopets.com request → copy the full **Cookie** request header.
-3. Run:
+## Local development
 
 ```bash
-NEOPETS_COOKIE='paste the whole cookie header here' node server.js
+node scripts/build.js          # writes _site/{index.html,data.json}
+python3 -m http.server -d _site 8899
 ```
 
-4. Open <http://localhost:8787> and click the button.
-
-Without `NEOPETS_COOKIE` the page still loads and shows the target, but buying will fail with a
-clear message.
+Then open <http://localhost:8899>. Serve it rather than opening the file directly — `fetch` on a
+`file://` page can't read `data.json`.
 
 ### Options
 
-| Env var          | Default | Meaning                                |
-| ---------------- | ------- | -------------------------------------- |
-| `NEOPETS_COOKIE` | —       | Cookie header from a logged-in session |
-| `PORT`           | `8787`  | Local port                             |
-| `SHARES`         | `1000`  | Shares per order                       |
-| `MIN_PRICE`      | `15`    | Minimum share price                    |
+| Env var     | Default | Meaning             |
+| ----------- | ------- | ------------------- |
+| `SHARES`    | `1000`  | Shares per order    |
+| `MIN_PRICE` | `15`    | Minimum share price |
 
 ## Notes
 
-- The target is re-derived server-side at click time, not taken from whatever the page was
-  showing, so a stale tab can't buy the wrong stock.
-- Prices are up to 15 minutes old, so the ticker can move between the last neostocks sample and
-  your order. Neopets rejects anything under 15 NP itself, and that rejection is reported back.
-- Neopets returns HTTP 200 for both accepted and rejected orders, so the outcome is inferred from
-  the response text. The heuristic is conservative — it only claims success on an explicit
-  past-tense confirmation with a share count, and anything it can't place is reported as
-  "check your portfolio". **The raw message from Neopets is always shown.**
 - Neopets caps purchases at 1,000 shares per day, so this is one click per day.
-- `_ref_ck` expires with the session. When the cookie goes stale the token scrape fails and the
-  page tells you to log in and re-copy the cookie.
+- The 15 NP floor is Neopets' own rule: *"You can only purchase shares in companies that trade at
+  15 NP per share or above."*
