@@ -4,9 +4,11 @@
  * Build step for the static site.
  *
  * Fetches the current market summary, works out the cheapest stock trading at
- * or above the minimum, and bakes that stock's buy URL into index.html. Runs in
- * CI on a schedule; the published site is a single static page that redirects,
- * with no server behind it.
+ * or above the minimum, and bakes that stock's buy URL into index.html.
+ *
+ * The published page re-runs this same pick client-side on every visit, so what
+ * gets baked in here is only the fallback for when that live fetch fails. That
+ * means the build no longer has to run on a timer to stay current.
  */
 
 const fs = require('fs');
@@ -14,54 +16,22 @@ const path = require('path');
 
 const MIN_PRICE = Number(process.env.MIN_PRICE || 15);
 
-const NEOSTOCKS_URL = 'https://neostocks.info/?period=1d';
+// Undocumented but public, and served as plain JSON - see R/api.R in
+// glin/neostocks. Beats scraping the `window.__data__` literal out of the page.
+const TICKERS_URL = 'https://neostocks.info/api/tickers?period=1d';
 const BUY_URL = 'https://www.neopets.com/stockmarket.phtml';
 
 const ROOT = path.join(__dirname, '..');
 const OUT_DIR = path.join(ROOT, '_site');
 
-// neostocks is a Shiny app: it bootstraps the whole summary table into a
-// `window.__data__ = {...}` literal in the served HTML. Pull that back out.
-function extractDataLiteral(html) {
-  const marker = html.indexOf('window.__data__');
-  if (marker === -1) throw new Error('neostocks: window.__data__ not found (page layout changed?)');
-
-  const start = html.indexOf('{', marker);
-  if (start === -1) throw new Error('neostocks: no object literal after window.__data__');
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = start; i < html.length; i++) {
-    const c = html[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (c === '\\') escaped = true;
-      else if (c === '"') inString = false;
-      continue;
-    }
-    if (c === '"') inString = true;
-    else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return html.slice(start, i + 1);
-  }
-  throw new Error('neostocks: unbalanced object literal');
-}
-
 async function getTarget() {
-  const res = await fetch(NEOSTOCKS_URL, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-        '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    },
-  });
+  const res = await fetch(TICKERS_URL, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`neostocks returned HTTP ${res.status}`);
 
-  const data = JSON.parse(extractDataLiteral(await res.text()));
-  const rows = data && data.summary_data && data.summary_data['1d'];
-  if (!Array.isArray(rows) || rows.length === 0) throw new Error('neostocks: no 1d summary rows');
+  const rows = await res.json();
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error('neostocks: no ticker rows');
 
+  // Same rule the page applies to live prices - keep the two in step.
   const eligible = rows
     .filter((r) => r && typeof r.ticker === 'string' && Number.isFinite(r.curr) && r.curr >= MIN_PRICE)
     .sort((a, b) => a.curr - b.curr || a.ticker.localeCompare(b.ticker));
@@ -80,7 +50,7 @@ async function getTarget() {
     // Neopets fills ticker_symbol from ?ticker=; the shares box it does not.
     buyUrl: `${BUY_URL}?${params}`,
     // neostocks samples every 15 minutes, so this is the age of the price.
-    pricesAsOf: best.update_time || data.update_time || null,
+    pricesAsOf: best.update_time || null,
     pricesAsOfNst: best.update_time_nst || null,
   };
 }
@@ -107,7 +77,11 @@ async function main() {
   const target = await getTarget();
 
   const template = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  const html = render(template, { BUY_URL: target.buyUrl, TICKER: target.ticker });
+  const html = render(template, {
+    BUY_URL: target.buyUrl,
+    TICKER: target.ticker,
+    MIN_PRICE: target.minPrice,
+  });
 
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });

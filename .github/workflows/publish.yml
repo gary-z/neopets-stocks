@@ -1,10 +1,10 @@
 name: Publish site
 
+# No schedule: the published page picks its target from live prices in the
+# browser, so a deploy is only needed when this repo's code changes. The pick
+# baked in at build time is just the offline fallback; workflow_dispatch is
+# there to refresh it by hand if it ever drifts far enough to matter.
 on:
-  schedule:
-    # neostocks refreshes every 15 minutes. GitHub delays scheduled runs under
-    # load, so treat this as "roughly every 15 minutes", not a guarantee.
-    - cron: '*/15 * * * *'
   push:
     branches: [main]
   pull_request:
@@ -39,10 +39,9 @@ jobs:
         with:
           path: _site
 
-  # Only ever runs on the default branch. The github-pages environment rejects
-  # deployments from other branches before the job is even dispatched, and cron
-  # only fires on the default branch anyway - so on a PR this is skipped rather
-  # than failing for a reason the PR can't fix.
+  # Only ever runs on the default branch: the github-pages environment rejects
+  # deployments from other branches before the job is even dispatched, so on a
+  # PR this is skipped rather than failing for a reason the PR can't fix.
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main'

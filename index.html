@@ -4,24 +4,127 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="favicon.ico">
-<!-- scripts/build.js substitutes the target picked at build time. -->
-<meta http-equiv="refresh" content="0; url=__BUY_URL__">
 <title>Neopets Stock Buyer</title>
+<!--
+  scripts/build.js substitutes the target it picked at build time. The script at
+  the bottom re-picks from live prices and usually overrides it; this baked-in
+  pick is the fallback for when that fetch fails, and the whole answer when
+  JavaScript is off.
+-->
+<noscript><meta http-equiv="refresh" content="0; url=__BUY_URL__"></noscript>
 <style>
   :root { color-scheme: light dark; }
   body {
     margin: 0;
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 8px;
     padding: 24px;
     text-align: center;
     font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
+  p { margin: 0; }
+  #fallback { opacity: 0.7; }
 </style>
 </head>
 <body>
-  <p>Opening __TICKER__ on Neopets&hellip; <a href="__BUY_URL__">continue</a> if nothing happens.</p>
+  <p>Finding the cheapest stock at __MIN_PRICE__ NP or above&hellip;</p>
+  <p><a id="fallback" href="__BUY_URL__" data-min-price="__MIN_PRICE__">Continue to __TICKER__</a></p>
+<script>
+(function () {
+  var link = document.getElementById('fallback');
+  var minPrice = Number(link.getAttribute('data-min-price')) || 15;
+
+  var API = 'https://neostocks.info/api/tickers?period=1d';
+  var BUY = 'https://www.neopets.com/stockmarket.phtml?type=buy&ticker=';
+
+  // neostocks serves that JSON without an Access-Control-Allow-Origin header,
+  // so a page on another origin can't read it directly. These public proxies
+  // re-serve it with CORS headers. cors.eu.org is the fast one and answers on
+  // its own nearly always; the backups only get asked if it stalls or fails.
+  var PRIMARY = function (url) { return 'https://cors.eu.org/' + url; };
+  var BACKUPS = [
+    function (url) { return 'https://r.jina.ai/' + url; },
+    function (url) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
+  ];
+
+  var BACKUP_DELAY = 1500;  // how long the primary gets to itself
+  var DEADLINE = 4000;      // hard cap, after which we just use the baked-in pick
+
+  var settled = false;
+  var backupsFired = false;
+  var outstanding = 0;
+
+  function go(url) {
+    if (settled) return;
+    settled = true;
+    // replace() so the back button returns where the visitor came from rather
+    // than bouncing them through here again.
+    location.replace(url || link.href);
+  }
+
+  // Proxies disagree about what to wrap the body in - r.jina.ai prepends a
+  // header block - so fall back to slicing from the start of the array.
+  function parse(text) {
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      var start = text.indexOf('[');
+      if (start === -1) throw err;
+      return JSON.parse(text.slice(start));
+    }
+  }
+
+  // Mirrors the pick in scripts/build.js: cheapest at or above the floor, ties
+  // broken by ticker so the same market always gives the same answer.
+  function cheapest(rows) {
+    var best = null;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row || typeof row.ticker !== 'string' || typeof row.curr !== 'number') continue;
+      if (row.curr < minPrice) continue;
+      if (!best || row.curr < best.curr || (row.curr === best.curr && row.ticker < best.ticker)) {
+        best = row;
+      }
+    }
+    if (!best) throw new Error('nothing trading at ' + minPrice + ' NP or above');
+    return best;
+  }
+
+  function fireBackups() {
+    if (backupsFired || settled) return;
+    backupsFired = true;
+    for (var i = 0; i < BACKUPS.length; i++) attempt(BACKUPS[i]);
+  }
+
+  function failed() {
+    outstanding--;
+    if (!backupsFired) fireBackups();
+    else if (outstanding === 0) go(null);
+  }
+
+  function attempt(proxy) {
+    outstanding++;
+    try {
+      fetch(proxy(API))
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.text();
+        })
+        .then(function (text) { return cheapest(parse(text)); })
+        .then(function (best) { go(BUY + encodeURIComponent(best.ticker)); }, failed);
+    } catch (err) {
+      failed();
+    }
+  }
+
+  setTimeout(fireBackups, BACKUP_DELAY);
+  setTimeout(function () { go(null); }, DEADLINE);
+  attempt(PRIMARY);
+}());
+</script>
 </body>
 </html>
