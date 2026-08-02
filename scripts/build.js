@@ -112,6 +112,8 @@ async function main() {
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(path.join(OUT_DIR, 'index.html'), html);
+  // _site is wiped above, so static assets have to be re-copied on every build.
+  fs.copyFileSync(path.join(ROOT, 'favicon.ico'), path.join(OUT_DIR, 'favicon.ico'));
 
   console.log(
     `${target.ticker} @ ${target.price} NP  ` +
