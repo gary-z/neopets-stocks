@@ -46,19 +46,18 @@
 
   // neostocks serves that JSON without an Access-Control-Allow-Origin header,
   // so a page on another origin can't read it directly. These public proxies
-  // re-serve it with CORS headers. cors.eu.org is the fast one and answers on
-  // its own nearly always; the backups only get asked if it stalls or fails.
-  var PRIMARY = function (url) { return 'https://cors.eu.org/' + url; };
-  var BACKUPS = [
+  // re-serve it with CORS headers. All three are asked at once and the first
+  // usable answer wins - a visitor waiting on a redirect notices a slow proxy
+  // far more than these hosts notice one extra request each.
+  var PROXIES = [
+    function (url) { return 'https://cors.eu.org/' + url; },
     function (url) { return 'https://r.jina.ai/' + url; },
     function (url) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
   ];
 
-  var BACKUP_DELAY = 1500;  // how long the primary gets to itself
-  var DEADLINE = 4000;      // hard cap, after which we give up and use the link
+  var DEADLINE = 4000;  // hard cap, after which we give up and use the link
 
   var settled = false;
-  var backupsFired = false;
   var outstanding = 0;
 
   function go(url) {
@@ -97,20 +96,14 @@
     return best;
   }
 
-  function fireBackups() {
-    if (backupsFired || settled) return;
-    backupsFired = true;
-    for (var i = 0; i < BACKUPS.length; i++) attempt(BACKUPS[i]);
-  }
-
+  // Only the last proxy to fail sends the visitor to the fallback; until then
+  // another request may still come back with an answer.
   function failed() {
     outstanding--;
-    if (!backupsFired) fireBackups();
-    else if (outstanding === 0) go(null);
+    if (outstanding === 0) go(null);
   }
 
   function attempt(proxy) {
-    outstanding++;
     try {
       fetch(proxy(API))
         .then(function (res) {
@@ -124,9 +117,12 @@
     }
   }
 
-  setTimeout(fireBackups, BACKUP_DELAY);
   setTimeout(function () { go(null); }, DEADLINE);
-  attempt(PRIMARY);
+
+  // Counted up front rather than inside attempt(), so a proxy that fails
+  // immediately can't drop the count to zero while others are still unsent.
+  outstanding = PROXIES.length;
+  for (var i = 0; i < PROXIES.length; i++) attempt(PROXIES[i]);
 }());
 </script>
 </body>
