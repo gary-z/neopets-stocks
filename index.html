@@ -46,11 +46,11 @@
   // neostocks serves its ticker JSON without an Access-Control-Allow-Origin
   // header, so a page on another origin can't read it directly. worker/ in this
   // repo is a Cloudflare Worker that fetches that feed and re-serves it with
-  // CORS headers; deploy it and put its hostname here.
+  // CORS headers.
   //
   // It is the only source. Public CORS proxies used to fill this role and were
   // unreliable enough that the link below beat them often enough to notice.
-  var WORKER = 'https://neopets-stocks-proxy.YOUR-SUBDOMAIN.workers.dev/';
+  var WORKER = 'https://neopets-stocks-proxy.garyxzeng.workers.dev/';
 
   var DEADLINE = 4000;  // hard cap, after which we give up and use the link
 
@@ -84,22 +84,16 @@
 
   setTimeout(failed, DEADLINE);
 
-  // An undeployed worker is not worth a request that can only fail: send the
-  // visitor on now rather than at the deadline.
-  if (WORKER.indexOf('YOUR-SUBDOMAIN') !== -1) {
+  try {
+    fetch(WORKER)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(cheapest)
+      .then(function (best) { go(BUY + encodeURIComponent(best.ticker)); }, failed);
+  } catch (err) {
     failed();
-  } else {
-    try {
-      fetch(WORKER)
-        .then(function (res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
-        })
-        .then(cheapest)
-        .then(function (best) { go(BUY + encodeURIComponent(best.ticker)); }, failed);
-    } catch (err) {
-      failed();
-    }
   }
 }());
 </script>

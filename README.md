@@ -17,23 +17,29 @@ The page is published by GitHub Pages on every push to `main`. The worker is pub
 `.github/workflows/deploy-worker.yml` on every push to `main` that touches `worker/`, so the two halves
 of the site stay in step without anyone remembering to redeploy.
 
-### First deploy
+The worker needs no bindings, no environment variables, and no paid plan. The free tier covers 100,000
+requests a day, and responses are edge-cached for 60 seconds, so repeat visits within a minute do not
+reach neostocks at all.
 
-The one part that has to happen by hand, because it is what tells you the hostname. From `worker/`:
+### Deploying by hand
+
+Needed once to create the worker, and afterwards only to change where it is published:
 
 ```sh
+cd worker
 npx wrangler@latest login    # once, opens a browser
 npx wrangler@latest deploy
 ```
 
-Deploy prints where it published, e.g. `https://neopets-stocks-proxy.your-subdomain.workers.dev`. Put
-that in the `WORKER` constant near the top of the script in `index.html`, replacing the
-`YOUR-SUBDOMAIN` placeholder, and commit. Until that placeholder is replaced the page has no price
-source and every visit goes straight to the stock market link.
+### If the hostname changes
 
-The worker needs no bindings, no environment variables, and no paid plan. The free tier covers 100,000
-requests a day, and responses are edge-cached for 60 seconds, so repeat visits within a minute do not
-reach neostocks at all.
+The deployed hostname lives in two places, and both have to move together:
+
+1. the `WORKER` constant near the top of the script in `index.html` — this is the one visitors use;
+2. the `WORKER_URL` repository variable, which only the post-deploy smoke test reads.
+
+Miss the first and the page falls back to the plain stock market link on every visit. Miss the second
+and deploys stay green while the smoke test checks a hostname nobody is using.
 
 ### Repository settings for automatic deploys
 

@@ -8,6 +8,7 @@ import vm from 'node:vm';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const script = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
+const WORKER = script.match(/var WORKER = '([^']+)'/)[1];
 
 const MARKET = 'https://www.neopets.com/stockmarket.phtml';
 const BUY = MARKET + '?type=buy&ticker=';
@@ -18,10 +19,10 @@ const FEED = [
   { ticker: 'HIG', curr: 40 }
 ];
 
-// Runs the script with the worker hostname substituted in, and answers its
-// fetch with `reply`: { body | badBody | reject | ok/status, after }.
-// Returns where it navigated, when, and every request it made.
-async function visit({ reply, worker = 'mine.workers.dev' }) {
+// Runs the script with `fetch` stubbed to answer with `reply`:
+// { body | badBody | reject | ok/status, after }. Returns where the script
+// navigated, when, and every request it made.
+async function visit({ reply }) {
   const requests = [];
   let clock = 0, timers = [], id = 0, landed = null;
 
@@ -54,7 +55,7 @@ async function visit({ reply, worker = 'mine.workers.dev' }) {
   };
 
   vm.createContext(sandbox);
-  vm.runInContext(script.replace('YOUR-SUBDOMAIN.workers.dev', worker), sandbox);
+  vm.runInContext(script, sandbox);
 
   // Flush pending promises, then jump the clock to whatever is due next.
   for (let i = 0; i < 500 && timers.length; i++) {
@@ -77,7 +78,7 @@ test('sends the visitor to the cheapest stock at or above the floor', async () =
 test('talks to the worker and nothing else', async () => {
   const { requests } = await visit({ reply: { body: FEED, after: 200 } });
   assert.equal(requests.length, 1);
-  assert.match(requests[0].url, /workers\.dev/);
+  assert.equal(requests[0].url, WORKER, 'no third-party host is contacted');
   assert.equal(requests[0].at, 0);
 });
 
@@ -105,17 +106,6 @@ test('ignores an answer that arrives after the deadline', async () => {
   const { landed } = await visit({ reply: { body: FEED, after: 5000 } });
   assert.deepEqual(landed, { url: MARKET, at: 4000 },
     'a second navigation would yank the page out from under the visitor');
-});
-
-// The placeholder ships in the repo until the worker is deployed, so this is
-// the state of the page for anyone who merges before deploying.
-test('an unconfigured worker costs no request and no wait', async () => {
-  const { requests, landed } = await visit({
-    worker: 'YOUR-SUBDOMAIN.workers.dev',
-    reply: { body: FEED, after: 100 }
-  });
-  assert.equal(requests.length, 0);
-  assert.deepEqual(landed, { url: MARKET, at: 0 });
 });
 
 test('falls back when nothing is trading above the floor', async () => {
