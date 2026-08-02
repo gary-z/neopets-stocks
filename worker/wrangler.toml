@@ -1,0 +1,8 @@
+name = "neopets-stocks-proxy"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Deployed with `npx wrangler@latest deploy` from this directory. The resulting
+# https://neopets-stocks-proxy.<your-subdomain>.workers.dev hostname goes into
+# the WORKER constant in ../index.html.
+workers_dev = true
