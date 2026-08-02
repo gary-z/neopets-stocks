@@ -51,13 +51,21 @@ neostocks sends no `Access-Control-Allow-Origin`, so the browser can't read that
 `.github/workflows/publish.yml` rebuilds and redeploys about every 15 minutes, matching the
 neostocks refresh. Nothing is committed back to the repo — each run publishes a fresh artifact.
 
-One-time setup: **Settings → Pages → Source → GitHub Actions**.
+No manual setup: `configure-pages` runs with `enablement: true`, which turns Pages on via the API
+on the first run.
 
 Caveats worth knowing:
 
+- **Pages on a private repo requires a paid plan** (Pro, Team, or Enterprise). On Free, make the
+  repo public or Pages can't be enabled at all.
+- A published Pages site is world-readable even when the repo is private, unless you're on
+  Enterprise with access control. Nothing here is sensitive — it's a ticker and a price — but
+  it is public once deployed.
 - GitHub delays scheduled workflows under load, so prices can be older than 15 minutes. The page
   always shows the timestamp it built from.
 - Scheduled workflows are disabled after 60 days without repo activity.
+- Deploying from a non-default branch can be blocked by the `github-pages` environment's branch
+  policy; merging to `main` avoids that.
 - A stale target only ever costs you a slightly-off pick — you see the real price on the Neopets
   page before confirming, and Neopets rejects anything below 15 NP itself.
 

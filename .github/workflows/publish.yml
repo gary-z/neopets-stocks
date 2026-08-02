@@ -35,7 +35,11 @@ jobs:
       - name: Build site
         run: node scripts/build.js
 
+      # enablement turns Pages on via the API on first run, so the repo doesn't
+      # need Settings -> Pages set to "GitHub Actions" by hand first.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
