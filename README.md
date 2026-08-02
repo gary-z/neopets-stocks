@@ -3,67 +3,69 @@
 A static page that redirects straight to the Neopets buy page with the cheapest stock trading at
 15 NP or above already selected. You fill in the share count and click **Buy Shares** yourself.
 
-No server. Hosted on GitHub Pages.
+Four files, no build step, no server. `index.html` is the whole thing.
 
 ## Where prices come from
 
 Neopets has no public price API, and its own stock list needs a session.
-[neostocks.info](https://neostocks.info) tracks the market publicly and bootstraps its summary
-table into the served HTML as a `window.__data__` literal, with a current price per ticker:
+[neostocks.info](https://neostocks.info) tracks the market publicly and — undocumented, but plainly
+public; see [`R/api.R`](https://github.com/glin/neostocks/blob/main/R/api.R) — serves it as JSON at
+`https://neostocks.info/api/tickers?period=1d`:
 
 ```json
-{"summary_data": {"1d": [{"ticker": "ACFI", "curr": 20, "update_time_nst": "..."}]}}
+[{"ticker": "ACFI", "curr": 20, "update_time_nst": "...", "...": "..."}]
 ```
 
-neostocks sends no `Access-Control-Allow-Origin`, so the browser can't read that directly. Instead
-`scripts/build.js` fetches it in CI, picks the cheapest stock at or above 15 NP, and substitutes
-that stock's buy URL into `index.html`, which is a template holding a `__BUY_URL__` placeholder and
-a meta refresh. The published page is that redirect and nothing else — no JavaScript, no data file.
+The one thing it does not send is `Access-Control-Allow-Origin`, so a page on another origin can't
+read it directly. Public CORS proxies re-serve that JSON with the header attached, which is what
+lets the page do its own pick on load. It tries [cors.eu.org](https://cors.eu.org) first, then
+[r.jina.ai](https://r.jina.ai) and [allorigins](https://allorigins.win) if that stalls past 1.5s.
+First answer wins.
+
+### If the fetch fails
+
+Both the fallback link and the `<noscript>` meta refresh point at
+`https://www.neopets.com/stockmarket.phtml` — the stock market itself, where you can pick a stock by
+hand. The page falls back to it when no proxy answers within 4 seconds, or when JavaScript is off.
+
+It is not a hardcoded ticker on purpose: a fixed pick goes stale, and Neopets refuses to sell a
+stock that has since fallen below 15 NP — a worse landing spot than the market page itself.
+
+Depending on strangers' free proxies is the real cost here, and they do come and go. The clean fix
+is upstream: one `headers` argument on the `shiny::httpResponse` in neostocks' `api.R` would make
+that API directly readable and let the proxies be deleted. Worth an issue on
+[glin/neostocks](https://github.com/glin/neostocks) if this ever matters enough.
 
 ## Deploying
 
-`.github/workflows/publish.yml` rebuilds and redeploys about every 15 minutes, matching the
-neostocks refresh. Nothing is committed back to the repo — each run publishes a fresh artifact.
-
-The `build` job is split from `deploy` on purpose: the build passes or fails on this repo's code
-alone, so it stays a useful signal even while the deploy half is blocked on repo settings.
-
-One-time manual step: **Settings → Pages → Source → GitHub Actions** (pick that, not "Deploy from
-a branch" — there's no folder to choose). The workflow can't do this itself: `GITHUB_TOKEN` can
-deploy to Pages but not create the site, so `configure-pages` with `enablement: true` fails with
-*"Resource not accessible by integration"*. It needs a repo admin.
-
-**Deploys only happen from `main`**, for two independent reasons — the `github-pages` environment
-rejects other branches before the job is dispatched, and GitHub only fires `schedule` triggers on
-the default branch. A feature branch therefore can't publish, and can't refresh prices on a timer
-either. On pull requests the deploy job is skipped and only `build` runs.
+**Settings → Pages → Source → Deploy from a branch → `main` / `(root)`.** That is the entire
+deploy — pushing to `main` publishes.
 
 Caveats worth knowing:
 
-- **Pages on a private repo requires a paid plan** (Pro, Team, or Enterprise). On Free, the
-  Pages section won't offer GitHub Actions as a source until the repo is public.
+- **Pages on a private repo requires a paid plan** (Pro, Team, or Enterprise). On Free, the Pages
+  section won't offer to publish until the repo is public.
 - A published Pages site is world-readable even when the repo is private, unless you're on
-  Enterprise with access control. Nothing here is sensitive — it's a ticker in a URL — but
-  it is public once deployed.
-- GitHub delays scheduled workflows under load, so the target can be older than 15 minutes.
-- Scheduled workflows are disabled after 60 days without repo activity.
-- A stale target only ever costs you a slightly-off pick — you see the real price on the Neopets
-  page before confirming, and Neopets rejects anything below 15 NP itself.
+  Enterprise with access control. Nothing here is sensitive — it's a ticker in a URL — but it is
+  public once deployed.
+- The redirect waits on a network round trip, so it takes about a second. Four seconds is the worst
+  case before it gives up and uses the fallback link.
+- neostocks samples every 15 minutes, so "live" prices are still up to 15 minutes old. That only
+  ever costs a slightly-off pick — you see the real price on the Neopets page before confirming.
 
 ## Local development
 
+Edit `index.html`. To try it, serve the directory over HTTP:
+
 ```bash
-node scripts/build.js          # writes _site/index.html
+python3 -m http.server 8000     # then open http://localhost:8000
 ```
 
-Open `_site/index.html` — it will bounce you to Neopets immediately, so to inspect the page itself
-read the file rather than loading it.
+Opening the file over `file://` exercises the fallback rather than the live fetch, since the proxies
+won't return CORS headers to a null origin.
 
-### Options
-
-| Env var     | Default | Meaning             |
-| ----------- | ------- | ------------------- |
-| `MIN_PRICE` | `15`    | Minimum share price |
+The 15 NP floor lives in the `#floor` span, which the script reads — change it there and the visible
+text and the pick stay in step.
 
 ## Notes
 
