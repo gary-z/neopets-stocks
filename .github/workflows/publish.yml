@@ -20,30 +20,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish:
+  # Split from deploy so the build stays a real signal: it passes or fails on
+  # this repo's code alone, independent of whether Pages is switched on.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Build site
         run: node scripts/build.js
 
-      # enablement turns Pages on via the API on first run, so the repo doesn't
-      # need Settings -> Pages set to "GitHub Actions" by hand first.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+  # Requires Pages to be enabled with "GitHub Actions" as the source. That is a
+  # one-time manual step: GITHUB_TOKEN can deploy to Pages but cannot create the
+  # site, so the workflow can't bootstrap it (see README).
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
 
       - id: deploy
         uses: actions/deploy-pages@v4

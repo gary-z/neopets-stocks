@@ -51,13 +51,17 @@ neostocks sends no `Access-Control-Allow-Origin`, so the browser can't read that
 `.github/workflows/publish.yml` rebuilds and redeploys about every 15 minutes, matching the
 neostocks refresh. Nothing is committed back to the repo — each run publishes a fresh artifact.
 
-No manual setup: `configure-pages` runs with `enablement: true`, which turns Pages on via the API
-on the first run.
+The `build` job is split from `deploy` on purpose: the build passes or fails on this repo's code
+alone, so it stays a useful signal even while the deploy half is blocked on repo settings.
+
+One-time manual step: **Settings → Pages → Source → GitHub Actions**. The workflow can't do this
+itself — `GITHUB_TOKEN` can deploy to Pages but not create the site, so `configure-pages` with
+`enablement: true` fails with *"Resource not accessible by integration"*. It needs a repo admin.
 
 Caveats worth knowing:
 
-- **Pages on a private repo requires a paid plan** (Pro, Team, or Enterprise). On Free, make the
-  repo public or Pages can't be enabled at all.
+- **Pages on a private repo requires a paid plan** (Pro, Team, or Enterprise). On Free, the
+  Pages section won't offer GitHub Actions as a source until the repo is public.
 - A published Pages site is world-readable even when the repo is private, unless you're on
   Enterprise with access control. Nothing here is sensitive — it's a ticker and a price — but
   it is public once deployed.
