@@ -3,28 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- scripts/build.js substitutes the target picked at build time. -->
+<meta http-equiv="refresh" content="0; url=__BUY_URL__">
 <title>Neopets Stock Buyer</title>
 <style>
-  :root {
-    color-scheme: light dark;
-    --bg: #f4f5f8;
-    --card: #ffffff;
-    --ink: #1b1d24;
-    --muted: #6b7280;
-    --line: #e3e5ea;
-    --accent: #2f5fd8;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #14161c;
-      --card: #1d2029;
-      --ink: #eceef4;
-      --muted: #9aa1b0;
-      --line: #2c303c;
-      --accent: #5b86ee;
-    }
-  }
-  * { box-sizing: border-box; }
+  :root { color-scheme: light dark; }
   body {
     margin: 0;
     min-height: 100vh;
@@ -32,145 +15,12 @@
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: var(--bg);
-    color: var(--ink);
-    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .card {
-    width: 100%;
-    max-width: 420px;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 28px;
     text-align: center;
-  }
-  h1 { margin: 0 0 4px; font-size: 17px; letter-spacing: -0.01em; }
-  .sub { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
-  .ticker { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; margin: 6px 0 2px; }
-  .price { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
-  .price b { color: var(--ink); font-weight: 600; }
-  .btn {
-    display: block;
-    width: 100%;
-    padding: 15px 18px;
-    font: inherit;
-    font-weight: 600;
-    color: #fff;
-    background: var(--accent);
-    border: 0;
-    border-radius: 10px;
-    text-decoration: none;
-    cursor: pointer;
-  }
-  .btn:hover { filter: brightness(1.08); }
-  .btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
-  .meta { margin-top: 16px; font-size: 12px; color: var(--muted); }
-  .err { display: none; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line);
-         border-left: 3px solid #d1453b; border-radius: 8px; text-align: left; font-size: 13px; }
-  .err.show { display: block; }
-  .helper {
-    margin-top: 22px;
-    padding-top: 18px;
-    border-top: 1px solid var(--line);
-    font-size: 12.5px;
-    color: var(--muted);
-    text-align: left;
-  }
-  .helper p { margin: 0 0 10px; }
-  .helper ol { margin: 0; padding-left: 18px; }
-  .helper li { margin-bottom: 5px; }
-  .bm {
-    display: inline-block;
-    padding: 5px 11px;
-    margin: 2px 0 8px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: var(--bg);
-    color: var(--ink);
-    font-weight: 600;
-    text-decoration: none;
-    cursor: grab;
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
 </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Neopets Stock Buyer</h1>
-    <p class="sub">Cheapest stock trading at 15 NP or above</p>
-
-    <div class="ticker" id="ticker">…</div>
-    <div class="price" id="price">loading prices…</div>
-
-    <a class="btn" id="buy" aria-disabled="true" href="#">Loading…</a>
-
-    <div class="meta" id="meta"></div>
-    <div class="err" id="err"></div>
-
-    <div class="helper">
-      <p>Neopets fills the ticker from the link, but not the share count. Drag this to
-         your bookmarks bar once, then click it on the buy page to fill it in:</p>
-      <p style="text-align:center"><a class="bm" id="bm" href="#">Fill 1,000 shares</a></p>
-      <ol>
-        <li>Click the button above (opens Neopets with the ticker filled)</li>
-        <li>Click the bookmarklet, or type the share count yourself</li>
-        <li>Click <b>Buy Shares</b> on Neopets</li>
-      </ol>
-    </div>
-  </main>
-
-<script>
-const $ = (id) => document.getElementById(id);
-const nf = new Intl.NumberFormat('en-US');
-
-// Reads the ticker out of the buy page's own URL rather than baking it in, so a
-// bookmarklet dragged today still works after the target stock changes.
-function bookmarklet(shares) {
-  const src = `(function(){
-    var q=new URLSearchParams(location.search).get('ticker');
-    var t=document.getElementsByName('ticker_symbol')[0];
-    var a=document.getElementsByName('amount_shares')[0];
-    if(!a){alert('Open the Neopets stock buy page first.');return;}
-    if(t&&q&&!t.value){t.value=q;}
-    a.value='${shares}';a.focus();
-  })();`.replace(/\s*\n\s*/g, '');
-  return 'javascript:' + encodeURI(src);
-}
-
-async function load() {
-  try {
-    // Cache-bust: Pages serves data.json with a long-ish default TTL.
-    const res = await fetch('data.json?t=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) throw new Error('data.json returned HTTP ' + res.status);
-    const t = await res.json();
-
-    $('ticker').textContent = t.ticker;
-    $('price').innerHTML =
-      `<b>${nf.format(t.price)} NP</b> / share &middot; ` +
-      `${nf.format(t.shares)} shares &middot; <b>${nf.format(t.totalCost)} NP</b> total`;
-
-    const buy = $('buy');
-    buy.textContent = `Buy ${nf.format(t.shares)} ${t.ticker} on Neopets →`;
-    buy.href = t.buyUrl;
-    buy.removeAttribute('aria-disabled');
-
-    const bm = $('bm');
-    bm.href = bookmarklet(t.shares);
-    bm.textContent = `Fill ${nf.format(t.shares)} shares`;
-
-    const when = t.pricesAsOfNst ? t.pricesAsOfNst + ' NST' : t.pricesAsOf || 'unknown';
-    $('meta').textContent =
-      `Cheapest of ${t.candidates} eligible (${t.tracked} tracked) · prices as of ${when}`;
-  } catch (err) {
-    $('ticker').textContent = '—';
-    $('price').textContent = 'could not load prices';
-    $('buy').textContent = 'Unavailable';
-    $('err').className = 'err show';
-    $('err').textContent = String(err.message || err);
-  }
-}
-
-load();
-</script>
+  <p>Opening __TICKER__ on Neopets&hellip; <a href="__BUY_URL__">continue</a> if nothing happens.</p>
 </body>
 </html>

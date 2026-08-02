@@ -4,16 +4,15 @@
  * Build step for the static site.
  *
  * Fetches the current market summary, works out the cheapest stock trading at
- * or above the minimum, and writes it next to index.html as data.json so the
- * page can read it same-origin. Runs in CI on a schedule; the published site is
- * plain static files with no server behind them.
+ * or above the minimum, and bakes that stock's buy URL into index.html. Runs in
+ * CI on a schedule; the published site is a single static page that redirects,
+ * with no server behind it.
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const MIN_PRICE = Number(process.env.MIN_PRICE || 15);
-const SHARES = Number(process.env.SHARES || 1000);
 
 const NEOSTOCKS_URL = 'https://neostocks.info/?period=1d';
 const BUY_URL = 'https://www.neopets.com/stockmarket.phtml';
@@ -75,8 +74,6 @@ async function getTarget() {
   return {
     ticker: best.ticker,
     price: best.curr,
-    shares: SHARES,
-    totalCost: best.curr * SHARES,
     minPrice: MIN_PRICE,
     candidates: eligible.length,
     tracked: rows.length,
@@ -85,24 +82,43 @@ async function getTarget() {
     // neostocks samples every 15 minutes, so this is the age of the price.
     pricesAsOf: best.update_time || data.update_time || null,
     pricesAsOfNst: best.update_time_nst || null,
-    builtAt: new Date().toISOString(),
   };
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// index.html is a template with __NAME__ placeholders. Missing one is a build
+// failure rather than a page published with the literal token still in it.
+function render(template, vars) {
+  return Object.entries(vars).reduce((html, [name, value]) => {
+    const token = `__${name}__`;
+    if (!html.includes(token)) throw new Error(`index.html has no ${token} to substitute`);
+    return html.split(token).join(escapeHtml(value));
+  }, template);
 }
 
 async function main() {
   const target = await getTarget();
 
+  const template = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const html = render(template, { BUY_URL: target.buyUrl, TICKER: target.ticker });
+
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.copyFileSync(path.join(ROOT, 'index.html'), path.join(OUT_DIR, 'index.html'));
-  fs.writeFileSync(path.join(OUT_DIR, 'data.json'), JSON.stringify(target, null, 2) + '\n');
+  fs.writeFileSync(path.join(OUT_DIR, 'index.html'), html);
 
   console.log(
     `${target.ticker} @ ${target.price} NP  ` +
       `(cheapest of ${target.candidates} at >= ${target.minPrice}, ${target.tracked} tracked)  ` +
       `prices as of ${target.pricesAsOfNst || target.pricesAsOf} NST`
   );
-  console.log(`wrote ${path.relative(ROOT, OUT_DIR)}/{index.html,data.json}`);
+  console.log(`wrote ${path.relative(ROOT, OUT_DIR)}/index.html -> ${target.buyUrl}`);
 }
 
 main().catch((err) => {
