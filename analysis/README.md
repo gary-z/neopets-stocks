@@ -10,6 +10,7 @@ python analysis/markov_tests.py    # is tomorrow a function of today alone?
 python analysis/strategy.py        # optimal stopping -> when to sell, what to pay
 python analysis/backtest.py        # the same rules replayed on real paths, no model
 python analysis/capacity.py        # what the 1000-shares/day cap changes
+python analysis/hold_longer.py     # tickers never delist -- is 65 too early to sell?
 ```
 
 ## Answers
@@ -21,6 +22,7 @@ python analysis/capacity.py        # what the 1000-shares/day cap changes
 | When to sell at 12.5% APR? | **65 NP.** Anything in 62–72 is within 1% of optimal. |
 | Best entry price? | **As cheap as the game allows — 15 NP.** |
 | Do 15 / 60 hold up? | Both are right. 60 leaves 2.2% on the table versus 65. |
+| Hold longer for the moonshot? | No. Every price is reached with probability 1, but doubling from 65 takes 22 years against the bank's 5.5. |
 
 ---
 
@@ -181,7 +183,73 @@ then *that*, not the bank rate, would be the opportunity cost and the right exit
 far lower. The 1,000-share cap is what stops the recycling. For a player who can fill the
 quota, 12.5% is the correct hurdle and 65 is the correct answer.
 
-## 7. Verdict on the rules of thumb
+## 7. Should you hold past 65? (`hold_longer.py`)
+
+Neopets tickers never delist, so the chain is recurrent and every price is reached
+eventually. That is true, and the model agrees: **P(ever reach L) = 1.00 from 65 for every
+L up to 1000.** A share bought at 65 will someday be worth 130. The question is only
+whether "someday" arrives fast enough to beat 12.5% in the bank, which doubles money in
+2,024 days (5.55 years).
+
+| from 65, reach | 70 | 80 | 100 | 130 | 200 | 300 | 1000 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| multiple | 1.08× | 1.23× | 1.54× | 2.00× | 3.08× | 4.62× | 15.4× |
+| P(ever) | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| expected years to get there | 1.2 | 3.6 | 10.8 | **22.0** | 50.9 | 109.2 | 490.1 |
+| years the bank needs for the same multiple | 0.6 | 1.7 | 3.5 | **5.5** | 9.0 | 12.2 | 21.9 |
+
+Doubling your money takes the stock 22 years and the bank 5.5. Recurrence is real and
+far too slow to trade on.
+
+**Effective APY of "buy at 65, sell at THRESHOLD, liquidate at day X if unsold":**
+
+| exit at ↓ / horizon → | 5y | 10y | 20y | 50y |
+| --- | --- | --- | --- | --- |
+| 70 | 8.60 | 11.73 | 11.94 | 11.94 |
+| 80 | 1.14 | 7.76 | 8.99 | 9.00 |
+| 100 | −7.61 | 2.39 | 5.73 | 5.94 |
+| 150 | −12.75 | −1.40 | 3.35 | 3.94 |
+| no exit at all | −14.59 | −4.54 | −0.51 | 0.74 |
+
+Nothing on the grid reaches 12.5%. Shorter horizons are far worse still — a 1-year cap
+gives −67% APY, because a forced sale lands back in the mean-reverted 15–20 range. The
+best of *every* threshold at an unbounded horizon is **12.08% APY** (exit at 67).
+
+That ceiling is not a coincidence. "Sell at 65" is precisely the statement that no way of
+continuing from 65 clears 12.5% — which is why the marginal return to holding one more day
+crosses the bank rate exactly there:
+
+| price | 40 | 50 | 55 | 60 | 62 | 64 | **65** | 70 | 80 | 100 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| marginal APY of holding % | 238 | 102 | 43.0 | 27.2 | 16.9 | 14.2 | **12.1** | 10.5 | 4.4 | 4.1 |
+
+**How wrong would the archive have to be?** Flipping the exit past 72 needs about
++0.83 %/day more drift across 65–150 than the archive shows. Measured drift there is
+−2.01 %/day with a ticker-clustered SE of 0.45 — so the flip is **1.8 standard errors
+away, roughly a 1-in-30 shot.** That is real, not remote, and the honest reading is that
+the exit sits somewhere in **62–73** rather than pinned at exactly 65.
+
+What that adverse scenario does *not* support is holding indefinitely. Re-solving under it
+moves the exit only to 73, and the payoff is:
+
+| horizon | 5y | 10y | 20y | 50y |
+| --- | --- | --- | --- | --- |
+| base case, best exit | 9.67 | 11.97 | 12.08 | 12.08 |
+| adverse case, best exit | 11.25 | 13.43 | 13.60 | 13.60 |
+
+Even granting a 1.8σ error in our favour, you hold for a decade to earn about one point
+over the bank.
+
+One more reason the entry decision is safe: the thin high-price rows the archive measures
+worst are never visited by a trade that exits in the 60s.
+P(price reaches 100 before it reaches 65 | bought at 15) is **0** — you would need a
+single-day jump of +56% from just under the threshold, which the archive never records.
+The 15-buy / 65-sell pair rests only on well-sampled prices.
+
+**So: no, don't hold longer.** Not because the moonshot cannot happen — it happens with
+probability 1 — but because you wait 22 years for a double that the bank delivers in 5.5.
+
+## 8. Verdict on the rules of thumb
 
 **Enter at 15 — correct**, though not for the reason it is usually given. 15 is not a
 level the market respects; it is the cheapest share Neopets will sell you, and the data
@@ -205,4 +273,8 @@ constraint, not the price process, is what should set your threshold.
 - Tail transition rows above ~100 NP rest on thin data dominated by two tickers
   (KSON, VPTS). The optimal policy sells long before there, and the scattered
   high-price hold-states the solver reports are noise — deleting them leaves V(15)
-  unchanged to four decimals.
+  unchanged to four decimals. Section 7 shows a 15/65 trade never reaches those rows
+  at all.
+- The exit is the least certain of the three answers. 62–73 all survive the robustness
+  checks; 65 is the point estimate. The entry answer (as cheap as allowed) and the
+  Markov finding are much harder to move.
