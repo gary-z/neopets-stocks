@@ -6,12 +6,15 @@
 <link rel="icon" href="favicon.ico">
 <title>Neopets Stock Buyer</title>
 <!--
-  scripts/build.js substitutes the target it picked at build time. The script at
-  the bottom re-picks from live prices and usually overrides it; this baked-in
-  pick is the fallback for when that fetch fails, and the whole answer when
-  JavaScript is off.
+  Served exactly as it sits here - no build step. Prices are read in the browser
+  on each visit, and the page forwards to the buy form for the cheapest stock at
+  or above the floor below.
+
+  When that can't be done - proxies down, JavaScript off - everything falls back
+  to the stock market page itself. That is a worse landing spot but never a
+  wrong one, which a hardcoded ticker would eventually become.
 -->
-<noscript><meta http-equiv="refresh" content="0; url=__BUY_URL__"></noscript>
+<noscript><meta http-equiv="refresh" content="0; url=https://www.neopets.com/stockmarket.phtml"></noscript>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -31,12 +34,12 @@
 </style>
 </head>
 <body>
-  <p>Finding the cheapest stock at __MIN_PRICE__ NP or above&hellip;</p>
-  <p><a id="fallback" href="__BUY_URL__" data-min-price="__MIN_PRICE__">Continue to __TICKER__</a></p>
+  <p>Finding the cheapest stock at <span id="floor">15</span> NP or above&hellip;</p>
+  <p><a id="fallback" href="https://www.neopets.com/stockmarket.phtml">Go to the stock market</a></p>
 <script>
 (function () {
   var link = document.getElementById('fallback');
-  var minPrice = Number(link.getAttribute('data-min-price')) || 15;
+  var minPrice = Number(document.getElementById('floor').textContent) || 15;
 
   var API = 'https://neostocks.info/api/tickers?period=1d';
   var BUY = 'https://www.neopets.com/stockmarket.phtml?type=buy&ticker=';
@@ -52,7 +55,7 @@
   ];
 
   var BACKUP_DELAY = 1500;  // how long the primary gets to itself
-  var DEADLINE = 4000;      // hard cap, after which we just use the baked-in pick
+  var DEADLINE = 4000;      // hard cap, after which we give up and use the link
 
   var settled = false;
   var backupsFired = false;
@@ -78,8 +81,8 @@
     }
   }
 
-  // Mirrors the pick in scripts/build.js: cheapest at or above the floor, ties
-  // broken by ticker so the same market always gives the same answer.
+  // Cheapest at or above the floor, ties broken by ticker so the same market
+  // always gives the same answer.
   function cheapest(rows) {
     var best = null;
     for (var i = 0; i < rows.length; i++) {
