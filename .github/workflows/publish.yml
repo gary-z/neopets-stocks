@@ -1,0 +1,57 @@
+name: Publish site
+
+on:
+  schedule:
+    # neostocks refreshes every 15 minutes. GitHub delays scheduled runs under
+    # load, so treat this as "roughly every 15 minutes", not a guarantee.
+    - cron: '*/15 * * * *'
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; a late scheduled run should yield to a newer one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # Split from deploy so the build stays a real signal: it passes or fails on
+  # this repo's code alone, independent of whether Pages is switched on.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build site
+        run: node scripts/build.js
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  # Only ever runs on the default branch. The github-pages environment rejects
+  # deployments from other branches before the job is even dispatched, and cron
+  # only fires on the default branch anyway - so on a PR this is skipped rather
+  # than failing for a reason the PR can't fix.
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
