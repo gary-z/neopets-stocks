@@ -54,9 +54,15 @@ neostocks refresh. Nothing is committed back to the repo — each run publishes 
 The `build` job is split from `deploy` on purpose: the build passes or fails on this repo's code
 alone, so it stays a useful signal even while the deploy half is blocked on repo settings.
 
-One-time manual step: **Settings → Pages → Source → GitHub Actions**. The workflow can't do this
-itself — `GITHUB_TOKEN` can deploy to Pages but not create the site, so `configure-pages` with
-`enablement: true` fails with *"Resource not accessible by integration"*. It needs a repo admin.
+One-time manual step: **Settings → Pages → Source → GitHub Actions** (pick that, not "Deploy from
+a branch" — there's no folder to choose). The workflow can't do this itself: `GITHUB_TOKEN` can
+deploy to Pages but not create the site, so `configure-pages` with `enablement: true` fails with
+*"Resource not accessible by integration"*. It needs a repo admin.
+
+**Deploys only happen from `main`**, for two independent reasons — the `github-pages` environment
+rejects other branches before the job is dispatched, and GitHub only fires `schedule` triggers on
+the default branch. A feature branch therefore can't publish, and can't refresh prices on a timer
+either. On pull requests the deploy job is skipped and only `build` runs.
 
 Caveats worth knowing:
 

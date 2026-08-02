@@ -6,7 +6,8 @@ on:
     # load, so treat this as "roughly every 15 minutes", not a guarantee.
     - cron: '*/15 * * * *'
   push:
-    branches: [claude/neopets-stock-automation-j3qk50]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -38,11 +39,13 @@ jobs:
         with:
           path: _site
 
-  # Requires Pages to be enabled with "GitHub Actions" as the source. That is a
-  # one-time manual step: GITHUB_TOKEN can deploy to Pages but cannot create the
-  # site, so the workflow can't bootstrap it (see README).
+  # Only ever runs on the default branch. The github-pages environment rejects
+  # deployments from other branches before the job is even dispatched, and cron
+  # only fires on the default branch anyway - so on a PR this is skipped rather
+  # than failing for a reason the PR can't fix.
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
