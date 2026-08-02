@@ -1,0 +1,11 @@
+name = "neopets-stocks"
+main = "src/worker.js"
+compatibility_date = "2026-08-02"
+
+# favicon.ico and nothing else. Assets are matched ahead of the Worker, but
+# there is no index.html in here, so "/" falls through to src/worker.js.
+[assets]
+directory = "./public"
+
+[observability]
+enabled = true
