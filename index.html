@@ -10,7 +10,7 @@
   on each visit, and the page forwards to the buy form for the cheapest stock at
   or above the floor below.
 
-  When that can't be done - proxies down, JavaScript off - everything falls back
+  When that can't be done - worker down, JavaScript off - everything falls back
   to the stock market page itself. That is a worse landing spot but never a
   wrong one, which a hardcoded ticker would eventually become.
 -->
@@ -41,32 +41,20 @@
   var link = document.getElementById('fallback');
   var minPrice = Number(document.getElementById('floor').textContent) || 15;
 
-  var API = 'https://neostocks.info/api/tickers?period=1d';
   var BUY = 'https://www.neopets.com/stockmarket.phtml?type=buy&ticker=';
 
-  // neostocks serves that JSON without an Access-Control-Allow-Origin header,
-  // so a page on another origin can't read it directly. worker/ in this repo is
-  // a Cloudflare Worker that re-serves it with CORS headers; deploy it and put
-  // its hostname here. Until that is filled in the page runs on the backup
-  // proxy alone, the way it did before the worker existed.
+  // neostocks serves its ticker JSON without an Access-Control-Allow-Origin
+  // header, so a page on another origin can't read it directly. worker/ in this
+  // repo is a Cloudflare Worker that fetches that feed and re-serves it with
+  // CORS headers; deploy it and put its hostname here.
+  //
+  // It is the only source. Public CORS proxies used to fill this role and were
+  // unreliable enough that the link below beat them often enough to notice.
   var WORKER = 'https://neopets-stocks-proxy.YOUR-SUBDOMAIN.workers.dev/';
 
-  // A public CORS proxy, kept only for when the worker is unreachable. Public
-  // proxies are why this page used to be a coin flip, so this one is asked a
-  // beat late rather than in parallel - a healthy worker answers first and the
-  // request is never sent.
-  var BACKUP = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(API);
-
-  var SOURCES = [];
-  if (WORKER.indexOf('YOUR-SUBDOMAIN') === -1) SOURCES.push(WORKER);
-  SOURCES.push(BACKUP);
-
-  var BACKUP_DELAY = 1200; // how long a source gets before the next one starts
-  var DEADLINE = 4000;     // hard cap, after which we give up and use the link
+  var DEADLINE = 4000;  // hard cap, after which we give up and use the link
 
   var settled = false;
-  var started = 0;    // sources whose request has been sent
-  var pending = 0;    // of those, the ones still waiting on an answer
 
   function go(url) {
     if (settled) return;
@@ -92,43 +80,26 @@
     return best;
   }
 
-  // Sources are started one at a time, either because the one before it took
-  // too long or because it failed outright. Both paths land here, and the
-  // started index keeps either from sending the same request twice.
-  function startNext() {
-    if (settled || started >= SOURCES.length) return;
-    var url = SOURCES[started++];
-    pending++;
-    attempt(url);
-  }
+  function failed() { go(null); }
 
-  // Only the last source still in flight sends the visitor to the fallback
-  // link; until then another request may yet come back with an answer.
-  function failed() {
-    pending--;
-    startNext();
-    if (pending === 0) go(null);
-  }
+  setTimeout(failed, DEADLINE);
 
-  function attempt(url) {
+  // An undeployed worker is not worth a request that can only fail: send the
+  // visitor on now rather than at the deadline.
+  if (WORKER.indexOf('YOUR-SUBDOMAIN') !== -1) {
+    failed();
+  } else {
     try {
-      fetch(url)
+      fetch(WORKER)
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.text();
+          return res.json();
         })
-        .then(function (text) { return cheapest(JSON.parse(text)); })
+        .then(cheapest)
         .then(function (best) { go(BUY + encodeURIComponent(best.ticker)); }, failed);
     } catch (err) {
       failed();
     }
-  }
-
-  setTimeout(function () { go(null); }, DEADLINE);
-
-  startNext();
-  for (var i = 1; i < SOURCES.length; i++) {
-    setTimeout(startNext, BACKUP_DELAY * i);
   }
 }());
 </script>
