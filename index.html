@@ -10,7 +10,7 @@
   on each visit, and the page forwards to the buy form for the cheapest stock at
   or above the floor below.
 
-  When that can't be done - proxies down, JavaScript off - everything falls back
+  When that can't be done - worker down, JavaScript off - everything falls back
   to the stock market page itself. That is a worse landing spot but never a
   wrong one, which a hardcoded ticker would eventually become.
 -->
@@ -41,24 +41,20 @@
   var link = document.getElementById('fallback');
   var minPrice = Number(document.getElementById('floor').textContent) || 15;
 
-  var API = 'https://neostocks.info/api/tickers?period=1d';
   var BUY = 'https://www.neopets.com/stockmarket.phtml?type=buy&ticker=';
 
-  // neostocks serves that JSON without an Access-Control-Allow-Origin header,
-  // so a page on another origin can't read it directly. These public proxies
-  // re-serve it with CORS headers. All three are asked at once and the first
-  // usable answer wins - a visitor waiting on a redirect notices a slow proxy
-  // far more than these hosts notice one extra request each.
-  var PROXIES = [
-    function (url) { return 'https://cors.eu.org/' + url; },
-    function (url) { return 'https://r.jina.ai/' + url; },
-    function (url) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url); }
-  ];
+  // neostocks serves its ticker JSON without an Access-Control-Allow-Origin
+  // header, so a page on another origin can't read it directly. worker/ in this
+  // repo is a Cloudflare Worker that fetches that feed and re-serves it with
+  // CORS headers.
+  //
+  // It is the only source. Public CORS proxies used to fill this role and were
+  // unreliable enough that the link below beat them often enough to notice.
+  var WORKER = 'https://neopets-stocks-proxy.gaarrryyy.workers.dev/';
 
   var DEADLINE = 4000;  // hard cap, after which we give up and use the link
 
   var settled = false;
-  var outstanding = 0;
 
   function go(url) {
     if (settled) return;
@@ -66,18 +62,6 @@
     // replace() so the back button returns where the visitor came from rather
     // than bouncing them through here again.
     location.replace(url || link.href);
-  }
-
-  // Proxies disagree about what to wrap the body in - r.jina.ai prepends a
-  // header block - so fall back to slicing from the start of the array.
-  function parse(text) {
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      var start = text.indexOf('[');
-      if (start === -1) throw err;
-      return JSON.parse(text.slice(start));
-    }
   }
 
   // Cheapest at or above the floor, ties broken by ticker so the same market
@@ -96,33 +80,21 @@
     return best;
   }
 
-  // Only the last proxy to fail sends the visitor to the fallback; until then
-  // another request may still come back with an answer.
-  function failed() {
-    outstanding--;
-    if (outstanding === 0) go(null);
+  function failed() { go(null); }
+
+  setTimeout(failed, DEADLINE);
+
+  try {
+    fetch(WORKER)
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(cheapest)
+      .then(function (best) { go(BUY + encodeURIComponent(best.ticker)); }, failed);
+  } catch (err) {
+    failed();
   }
-
-  function attempt(proxy) {
-    try {
-      fetch(proxy(API))
-        .then(function (res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.text();
-        })
-        .then(function (text) { return cheapest(parse(text)); })
-        .then(function (best) { go(BUY + encodeURIComponent(best.ticker)); }, failed);
-    } catch (err) {
-      failed();
-    }
-  }
-
-  setTimeout(function () { go(null); }, DEADLINE);
-
-  // Counted up front rather than inside attempt(), so a proxy that fails
-  // immediately can't drop the count to zero while others are still unsent.
-  outstanding = PROXIES.length;
-  for (var i = 0; i < PROXIES.length; i++) attempt(PROXIES[i]);
 }());
 </script>
 </body>
