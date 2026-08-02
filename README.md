@@ -53,6 +53,42 @@ Caveats worth knowing:
 - neostocks samples every 15 minutes, so "live" prices are still up to 15 minutes old. That only
   ever costs a slightly-off pick — you see the real price on the Neopets page before confirming.
 
+## Historical data for analysis
+
+The repository includes [`data/archived_prices.csv`](data/archived_prices.csv), a copy of neostocks'
+public [`archived_prices.csv`](https://github.com/glin/neostocks/blob/main/inst/extdata/archived_prices.csv).
+It is a complete daily panel of 43 tickers from **2006-04-24 through 2018-06-30**: 4,451 calendar
+days and 191,393 observations, with columns `time`, `ticker`, and `curr`. The upstream project's
+credits say the 2006–2018 data originated at the now-defunct NeoDaq and was recovered in part from
+Internet Archive snapshots. After cloning this project, make a working copy with:
+
+```bash
+cp data/archived_prices.csv archived_prices.csv
+```
+
+The committed file's SHA-256 digest is
+`eab248be9a96627e38e1e99c5bcd92452ad36b04f6f957e555bfb8a91fc88452`.
+
+There are two important qualifications:
+
+- This is one price per ticker per calendar day, not every intraday quote. Do not use it to estimate
+  whether a sell threshold was crossed *during* a day without accepting interval censoring.
+- neostocks has collected newer, half-hourly observations since July 2018, but the repository's
+  bundled [`neostocks.csv`](https://github.com/glin/neostocks/blob/main/inst/extdata/neostocks.csv)
+  is only a one-month example ending 2018-07-31. The public `/api/tickers` endpoint returns period
+  summaries, not the underlying historical observations, so it cannot fill the 2018-to-present gap
+  for a reproducible backtest.
+
+For an expected-value study, start with every observation where `curr == 15` (or the actual purchase
+price), then look forward within the **same ticker** to the first day at each proposed sell price.
+Report both the probability of reaching the target within a fixed horizon and the distribution of
+days-to-target. Treat positions that never hit the target before 2018-06-30 as right-censored rather
+than silently dropping them. Also use time-based train/test splits and cluster uncertainty by ticker:
+overlapping purchase dates are not independent trades, and randomly splitting rows leaks future
+market regimes into the training sample. A simple gross return at target price `s` is
+`1000 * (s - 15)` NP; annualized or discounted expected value additionally needs the waiting-time
+distribution and an explicit opportunity cost for the 15,000 NP tied up in each lot.
+
 ## Local development
 
 Edit `index.html`. To try it, serve the directory over HTTP:
