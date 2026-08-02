@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neopets Stock Buyer</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f5f8;
+    --card: #ffffff;
+    --ink: #1b1d24;
+    --muted: #6b7280;
+    --line: #e3e5ea;
+    --accent: #2f5fd8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161c;
+      --card: #1d2029;
+      --ink: #eceef4;
+      --muted: #9aa1b0;
+      --line: #2c303c;
+      --accent: #5b86ee;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px;
+    text-align: center;
+  }
+  h1 { margin: 0 0 4px; font-size: 17px; letter-spacing: -0.01em; }
+  .sub { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
+  .ticker { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; margin: 6px 0 2px; }
+  .price { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .price b { color: var(--ink); font-weight: 600; }
+  button {
+    width: 100%;
+    padding: 15px 18px;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: 0;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.08); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .meta { margin-top: 16px; font-size: 12px; color: var(--muted); }
+  .out {
+    display: none;
+    margin-top: 18px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-left-width: 3px;
+    border-radius: 8px;
+    text-align: left;
+    font-size: 13px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .out.show { display: block; }
+  .out.ok   { border-left-color: #2e9e5b; }
+  .out.warn { border-left-color: #d08700; }
+  .out.bad  { border-left-color: #d1453b; }
+  .out .head { font-weight: 600; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <h1>Neopets Stock Buyer</h1>
+    <p class="sub">Cheapest stock trading at 15 NP or above</p>
+
+    <div class="ticker" id="ticker">…</div>
+    <div class="price" id="price">loading prices…</div>
+
+    <button id="buy" disabled>Loading…</button>
+
+    <div class="meta" id="meta"></div>
+    <div class="out" id="out"></div>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const nf = new Intl.NumberFormat('en-US');
+let target = null;
+
+function say(kind, head, body) {
+  const out = $('out');
+  out.className = 'out show ' + kind;
+  out.innerHTML = '';
+  const h = document.createElement('div');
+  h.className = 'head';
+  h.textContent = head;
+  out.append(h);
+  if (body) {
+    const p = document.createElement('div');
+    p.textContent = body;
+    out.append(p);
+  }
+}
+
+async function loadTarget() {
+  try {
+    const res = await fetch('/api/target');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    target = data.target;
+    $('ticker').textContent = target.ticker;
+    $('price').innerHTML =
+      `<b>${nf.format(target.price)} NP</b> / share &middot; ` +
+      `${nf.format(target.shares)} shares &middot; <b>${nf.format(target.totalCost)} NP</b> total`;
+
+    $('buy').textContent = `Buy ${nf.format(target.shares)} ${target.ticker}`;
+    $('buy').disabled = false;
+
+    const when = target.updatedAtNst ? `${target.updatedAtNst} NST` : target.updatedAt || 'unknown';
+    $('meta').textContent =
+      `Cheapest of ${target.candidates} eligible (${target.tracked} tracked) · prices as of ${when}`;
+
+    if (!data.configured) {
+      say('warn', 'NEOPETS_COOKIE is not set.', 'Prices load, but buying will fail. See README.md.');
+    }
+  } catch (err) {
+    $('ticker').textContent = '—';
+    $('price').textContent = 'could not load prices';
+    $('buy').textContent = 'Unavailable';
+    say('bad', 'Could not load prices', String(err.message || err));
+  }
+}
+
+$('buy').addEventListener('click', async () => {
+  const btn = $('buy');
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = 'Buying…';
+  say('warn', 'Submitting order…', '');
+
+  try {
+    const res = await fetch('/api/buy', { method: 'POST' });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+
+    // The server re-checks the price at buy time, so report what it actually bought.
+    const t = data.target;
+    const what = `${nf.format(t.shares)} × ${t.ticker} @ ${nf.format(t.price)} NP = ${nf.format(t.totalCost)} NP`;
+
+    if (data.outcome === 'success') {
+      say('ok', `Bought ${what}`, data.message);
+      btn.textContent = 'Done';
+      return;
+    }
+    if (data.outcome === 'unknown') {
+      say('warn', 'Order submitted — check your portfolio', `Attempted: ${what}\n\n${data.message}`);
+    } else {
+      const titles = {
+        insufficient_funds: 'Not enough Neopoints',
+        daily_limit: 'Daily purchase limit reached',
+        below_minimum: 'Stock is below the minimum price',
+        error: 'Neopets rejected the order',
+      };
+      say('bad', titles[data.outcome] || 'Order failed', `Attempted: ${what}\n\n${data.message}`);
+    }
+  } catch (err) {
+    say('bad', 'Order failed', String(err.message || err));
+  }
+
+  btn.textContent = label;
+  btn.disabled = false;
+});
+
+loadTarget();
+</script>
+</body>
+</html>
